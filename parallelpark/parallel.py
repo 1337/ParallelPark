@@ -12,7 +12,7 @@ __author__    = 'Brian Lai'
 
 
 from multiprocessing.dummy import Pool as ThreadPool
-from functools import partial
+from functools import partial, wraps
 
 
 class ParallelPark(object):
@@ -24,7 +24,7 @@ class ParallelPark(object):
 
     async_result = None
 
-    def __init__(self, data, args=None, kwargs=None, worker_count=4):
+    def __init__(self, data=None, args=None, kwargs=None, worker_count=4):
         """
         :param {list<{function}>} data    an iterable for multiprocessing
         :param {list|tuple}       args    a list of positional arguments to
@@ -33,6 +33,8 @@ class ParallelPark(object):
                                           to the functions
         :param {int}              workers number of threads to use
         """
+        if not data:
+            data = []
         if not args:
             args = tuple()
         if not kwargs:
@@ -61,7 +63,10 @@ class ParallelPark(object):
         kwargs.update(self.kwargs)
 
         fish_curry = partial(fn, *args, **kwargs)
-        intermediates = self.workers.map_async(fish_curry, self.data)
+        if self.data:
+            intermediates = self.workers.map_async(fish_curry, self.data)
+        else:  # no data for async decorator
+            intermediates = self.workers.map_async(fish_curry, [])
 
         self.async_result = intermediates
 
@@ -85,14 +90,39 @@ class ParallelPark(object):
         return self.data
 
 
+def parallel(fn):
+    class Promise(object):
+        def __init__(self, fn):
+            self.fn = fn
+
+        def __call__(self, *args, **kwargs):
+            self.fn(*args, **kwargs)
+            return self
+
+        def then(self, fn):
+            pass
+
+    @wraps(fn)
+    def wrapped_fn(*args, **kwargs):
+        async = ParallelPark(args=args, kwargs=kwargs).map(fn)
+        return async
+    return wrapped_fn
+
+
 if __name__ == '__main__':
     # Test map
     def scrape(url):
         import urllib2
         try:
+            print "scraping {0}".format(url)
             return urllib2.urlopen(url)
         except Exception as err:
             return None
+
+    @parallel
+    def async_scrape(url):
+        scrape(url)
+        print "scraped {0}!".format(url)
 
 
     urls = [
@@ -106,5 +136,10 @@ if __name__ == '__main__':
         'http://pinterest.com',
     ]
 
+    # use in iterator
     for response in ParallelPark(urls).map(scrape):
         print "%s %s" % (response.getcode(), response.url)
+
+    for url in urls:
+        a = async_scrape(url)
+        print a  # accessing a.values will block

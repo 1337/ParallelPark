@@ -4,6 +4,7 @@
 More elaborate version of "Parallelism in one line"
 https://medium.com/building-things-on-the-internet/40e9b2b36148
 """
+from urllib2 import HTTPError
 
 
 __copyright__ = 'Willet Inc.'
@@ -42,7 +43,8 @@ class ParallelPark(object):
 
     def __iter__(self):
         for result in self.values:
-            yield result
+            if result:
+                yield result
 
     def map(self, fn, *args, **kwargs):
         """
@@ -65,6 +67,10 @@ class ParallelPark(object):
 
         return self
 
+    def clean(self):
+        self.data = filter(None, self.data)
+        return self
+
     @property
     def values(self):
         """Get the final values from all the maps
@@ -81,9 +87,24 @@ class ParallelPark(object):
 
 if __name__ == '__main__':
     # Test map
-    def pow(number, exponent):
-        return number ** exponent
+    def scrape(url):
+        import urllib2
+        try:
+            return urllib2.urlopen(url)
+        except Exception as err:
+            return None
 
-    a = ParallelPark(xrange(10)).map(pow, exponent=5).map(lambda x: x + 2)
-    for x in a:
-        print(x)
+
+    urls = [
+        'http://willetinc.com',
+        'http://secondfunnel.com',
+        'http://github.com',
+        'http://google.com',
+        'http://google.ca',
+        'http://ohai.ca',
+        'http://reddit.com',
+        'http://pinterest.com',
+    ]
+
+    for response in ParallelPark(urls).map(scrape):
+        print "%s %s" % (response.getcode(), response.url)

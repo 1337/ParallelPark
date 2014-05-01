@@ -2,20 +2,24 @@
 __copyright__ = 'Willet Inc.'
 __author__    = 'Brian Lai'
 
-try:
-    from concurrent import futures
-except ImportError as err:
-    import futures
-    
+import threading
 from functools import partial
 
 
 class ParallelPark(object):
 
-    fns = []
-    args = tuple()
-    kwargs = {}
-    workers = 4
+    class Thread(threading.Thread):
+        def __init__(self, thread_id, func, args=None):
+            threading.Thread.__init__(self)
+            self.thread_id = thread_id
+            self.func = func
+            self.args = args
+
+        def run(self):
+            print "Starting " + self.thread_id
+            return self.func(*self.args.get('args', tuple()),
+                             **self.args.get('kwargs', {}))
+
 
     def __init__(self, *fns, **kwargs):
         """
@@ -46,8 +50,8 @@ class ParallelPark(object):
             data = []
 
         intermediates = data
-        for fn in self.fns:
-            with futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+        with futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
+            for fn in self.fns:
                 fish_curry = partial(fn, *self.args, **self.kwargs)
                 intermediates = executor.map(fish_curry, intermediates)
 
@@ -82,11 +86,20 @@ class ParallelPark(object):
         return idx_map.values()
 
     def then(self, fn):
-        pass
+        pass  # TODO
 
     def fail(self, handler):
-        pass
+        pass  # TODO
 
+
+# TODO
+def parallel(**options):
+    def configure():
+        def wraps(fn):
+            return fn()
+        return wraps
+
+    return configure(**options)
 
 if __name__ == '__main__':
     # Test map
@@ -97,4 +110,12 @@ if __name__ == '__main__':
     # Test run
     a = ParallelPark(lambda x: x + 5, lambda x: x - 5).run(1)
     for x in a:
+        print(x)
+
+    # Test decorator
+    @parallel
+    def fn(i):
+        return i
+
+    for x in range(5):
         print(x)

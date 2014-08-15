@@ -8,11 +8,27 @@ from urllib2 import HTTPError
 
 
 __copyright__ = 'Willet Inc.'
-__author__    = 'Brian Lai'
+__author__ = 'Brian Lai'
+__license__ = 'MIT'
 
-
-from multiprocessing.dummy import Pool as ThreadPool
+# same API, doesn't actually multiprocess
+# from multiprocessing.dummy import Pool
+from multiprocessing import Pool
 from functools import partial, wraps
+
+
+class Promise(object):
+    fn = None
+    def __init__(self, fn, args, kwds):
+        self.fn = fn
+        self.args = args
+        self.kwds = kwds
+
+    def then(self, fn):
+        pool = Pool(processes=1)              # Start a worker processes.
+        result = pool.apply_async(self.fn, args=self.result, kwds=self.kwds, fn) # Evaluate "f(10)" asynchronously calling callback when finished.
+        self.result = result
+        return self
 
 
 class ParallelPark(object):
@@ -41,7 +57,7 @@ class ParallelPark(object):
             kwargs = {}
 
         self.data, self.workers, self.args, self.kwargs = (
-            data, ThreadPool(worker_count), args, kwargs)
+            data, Pool(worker_count), args, kwargs)
 
     def __iter__(self):
         for result in self.values:
@@ -107,39 +123,3 @@ def parallel(fn):
         async = ParallelPark(args=args, kwargs=kwargs).map(fn)
         return async
     return wrapped_fn
-
-
-if __name__ == '__main__':
-    # Test map
-    def scrape(url):
-        import urllib2
-        try:
-            print "scraping {0}".format(url)
-            return urllib2.urlopen(url)
-        except Exception as err:
-            return None
-
-    @parallel
-    def async_scrape(url):
-        scrape(url)
-        print "scraped {0}!".format(url)
-
-
-    urls = [
-        'http://willetinc.com',
-        'http://secondfunnel.com',
-        'http://github.com',
-        'http://google.com',
-        'http://google.ca',
-        'http://ohai.ca',
-        'http://reddit.com',
-        'http://pinterest.com',
-    ]
-
-    # use in iterator
-    for response in ParallelPark(urls).map(scrape):
-        print "%s %s" % (response.getcode(), response.url)
-
-    for url in urls:
-        a = async_scrape(url)
-        print a  # accessing a.values will block

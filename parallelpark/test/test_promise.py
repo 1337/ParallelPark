@@ -1,24 +1,21 @@
 from unittest.case import TestCase
-from parallelpark.parallel import ParallelPark, parallel
+from parallelpark.parallel import pmap
 
 
 class PromiseTest(TestCase):
 
-    def test_promise(self):
+    def test_pmap(self):
         # Test map
         def scrape(url):
             import urllib2
             try:
                 print "scraping {0}".format(url)
-                return urllib2.urlopen(url)
+                h = urllib2.urlopen(url)
+                print "scraped {0}!".format(url)
+                return h.url
             except Exception as err:
+                print err
                 return None
-
-        @parallel
-        def async_scrape(url):
-            scrape(url)
-            print "scraped {0}!".format(url)
-
 
         urls = [
             'http://willetinc.com',
@@ -31,14 +28,7 @@ class PromiseTest(TestCase):
             'http://pinterest.com',
         ]
 
-        # use in iterator
-        for response in ParallelPark(urls).map(scrape):
-            print "%s %s" % (response.getcode(), response.url)
-
-        for url in urls:
-            a = async_scrape(url)
-            print a  # accessing a.values will block
-
+        print pmap(scrape, urls)
 
 if __name__ == '__main__':
-    PromiseTest().test_promise()
+    PromiseTest().test_pmap()

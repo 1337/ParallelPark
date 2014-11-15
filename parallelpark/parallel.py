@@ -1,8 +1,18 @@
+#!/usr/bin/env python
+
+"""
+More elaborate version of "Parallelism in one line"
+https://medium.com/building-things-on-the-internet/40e9b2b36148
+"""
+from urllib2 import HTTPError
+
 
 __copyright__ = 'Willet Inc.'
 __author__    = 'Brian Lai'
 
 import threading
+
+from multiprocessing.dummy import Pool as ThreadPool
 from functools import partial
 
 
@@ -20,68 +30,68 @@ class ParallelPark(object):
             return self.func(*self.args.get('args', tuple()),
                              **self.args.get('kwargs', {}))
 
+    data = None
+    args = tuple()
+    kwargs = {}
+    workers = None
 
-    def __init__(self, *fns, **kwargs):
+    async_result = None
+
+    def __init__(self, data, args=None, kwargs=None, worker_count=4):
         """
-        :param fns tuple
-        kwargs allowed: args, kwargs, workers
+        :param {list<{function}>} data    an iterable for multiprocessing
+        :param {list|tuple}       args    a list of positional arguments to
+                                          pass to the functions
+        :param {dict}             kwargs  KVs of named arguments to pass
+                                          to the functions
+        :param {int}              workers number of threads to use
         """
-        if type(fns[0]) == list:  # passed in as [fn, fn, fn]; unpack
-            self.fns = fns[0]
-        else:
-            self.fns = fns
+        if not args:
+            args = tuple()
+        if not kwargs:
+            kwargs = {}
 
-        self._update(kwargs)
+        self.data, self.workers, self.args, self.kwargs = (
+            data, ThreadPool(worker_count), args, kwargs)
 
-    def _update(self, dct):
-        for key in dct:
-            setattr(self, key, dct[key])
+    def __iter__(self):
+        for result in self.values:
+            if result:
+                yield result
 
-    def map(self, data=None, as_generator=True):
+    def map(self, fn, *args, **kwargs):
         """
-        fn2(fn1(data, *args, **kwargs), *args, **kwargs)
-
-        :param as_generator (no effect in Python 3+)
-
-        :returns generator
+        :returns self
         """
+        if not fn:
+            return self  # done
 
-        if not data:
-            data = []
+        if self.async_result:
+            self.async_result.wait()
+            self.data = self.async_result.get()
 
         intermediates = data
         with futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
             for fn in self.fns:
                 fish_curry = partial(fn, *self.args, **self.kwargs)
                 intermediates = executor.map(fish_curry, intermediates)
+        args += self.args
+        kwargs.update(self.kwargs)
 
-        if as_generator and hasattr(intermediates, '__iter__'):
-            return intermediates
-        return list(intermediates)
+        fish_curry = partial(fn, *args, **kwargs)
+        intermediates = self.workers.map_async(fish_curry, self.data)
 
-    def run(self, data=None, as_generator=True):
-        """class(def 1, def 2).execute()
+        self.async_result = intermediates
 
-        :param as_generator (no effect in Python 3+)
+        return self
 
-        :returns list
-        """
-        len_fns = len(self.fns)
-        idx_map = dict(zip(range(len_fns), self.fns))
+    def clean(self):
+        self.data = filter(None, self.data)
+        return self
 
-        with futures.ThreadPoolExecutor(max_workers=self.workers) as executor:
-            future_to_idx = dict([
-                (executor.submit(idx_map[idx], data,
-                                 *self.args, **self.kwargs), idx)
-                for idx in idx_map
-            ])
-
-        for future in futures.as_completed(future_to_idx):
-            idx = future_to_idx[future]
-            idx_map[idx] = future.result()
-
-        if as_generator and hasattr(idx_map, 'itervalues'):
-            return idx_map.itervalues()
+    @property
+    def values(self):
+        """Get the final values from all the maps
 
         return idx_map.values()
 
@@ -91,6 +101,14 @@ class ParallelPark(object):
     def fail(self, handler):
         pass  # TODO
 
+        :returns generator (there's no reason to return a list)
+        """
+        if self.workers:
+            self.workers.close()
+            self.workers.join()
+            self.data = self.async_result.get()
+
+        return self.data
 
 # TODO
 def parallel(**options):
@@ -119,3 +137,25 @@ if __name__ == '__main__':
 
     for x in range(5):
         print(x)
+
+    def scrape(url):
+        import urllib2
+        try:
+            return urllib2.urlopen(url)
+        except Exception as err:
+            return None
+
+
+    urls = [
+        'http://willetinc.com',
+        'http://secondfunnel.com',
+        'http://github.com',
+        'http://google.com',
+        'http://google.ca',
+        'http://ohai.ca',
+        'http://reddit.com',
+        'http://pinterest.com',
+    ]
+
+    for response in ParallelPark(urls).map(scrape):
+        print "%s %s" % (response.getcode(), response.url)
